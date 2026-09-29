@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>부산시 편의점 지도 (Busan Convenience Store Map)</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Leaflet CSS & JS (100% Free Open-Source Map) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Leaflet MarkerCluster CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Custom Apple HIG & Spring Motion CSS -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="h-screen w-screen overflow-hidden bg-[#E5E5EA] relative flex text-[#1c1c1e] select-none">
+
+  <!-- ========================================== -->
+  <!-- 1. 메인 전체화면 지도 -->
+  <!-- ========================================== -->
+  <div id="map" class="absolute inset-0 w-full h-full z-0"></div>
+
+  <!-- ========================================== -->
+  <!-- 2. 데스크톱 초반투명 플로팅 패널 (Apple Glass + Spring) -->
+  <!-- ========================================== -->
+  <aside class="hidden md:flex flex-col w-[410px] h-[calc(100vh-32px)] my-4 ml-4 apple-glass rounded-[30px] z-20 shrink-0 overflow-hidden">
+    
+    <!-- Apple Style 헤더 -->
+    <div class="px-5 pt-5 pb-3 flex items-center justify-between border-b border-black/[0.04]">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#007AFF] to-[#5856D6] flex items-center justify-center text-white text-lg shadow-md shadow-blue-500/25">
+          🏪
+        </div>
+        <div>
+          <h1 class="text-[17px] font-bold tracking-tight text-[#1c1c1e] flex items-center gap-1.5">
+            부산 편의점 지도
+          </h1>
+          <p class="text-[11px] text-[#636366] font-medium tracking-tight">소상공인 2,780개 점포</p>
+        </div>
+      </div>
+      <button id="btn-reset" class="apple-pressable px-3 py-1.5 text-xs font-semibold text-[#007AFF] bg-white/40 hover:bg-white/70 rounded-full transition shadow-2xs border border-white/50" title="필터 초기화">
+        재설정 ↺
+      </button>
+    </div>
+
+    <!-- 현재 위치 탐색 상태 배너 (Apple Glass Notification) -->
+    <div id="location-banner" class="mx-3.5 my-2.5 px-3.5 py-2.5 apple-glass-subtle rounded-2xl shadow-2xs flex items-center justify-between gap-2.5">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-7 h-7 rounded-xl bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center shrink-0 text-xs font-bold">
+          📍
+        </div>
+        <div class="truncate">
+          <p id="location-title" class="text-xs font-bold text-[#1c1c1e] truncate">현재 내 위치 찾는 중...</p>
+          <p id="location-desc" class="text-[11px] text-[#636366] truncate">위치 권한 허용 시 가까운 순 정렬</p>
+        </div>
+      </div>
+      <button id="btn-get-location" class="apple-pressable shrink-0 px-3 py-1.5 bg-[#007AFF] hover:bg-[#0062cc] text-white text-[11px] font-bold rounded-full shadow-xs transition">
+        내 위치
+      </button>
+    </div>
+
+    <!-- 검색 & 필터 컨트롤 -->
+    <div class="px-4 py-2 space-y-3">
+      
+      <!-- 구/군 셀렉트 & 즐겨찾기 버튼 -->
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <select id="gu-select" class="apple-pressable w-full pl-3.5 pr-8 py-2 bg-white/45 hover:bg-white/70 focus:bg-white/80 border border-white/60 rounded-xl text-xs font-semibold text-[#1c1c1e] focus:outline-hidden focus:ring-2 focus:ring-[#007AFF]/40 appearance-none shadow-2xs cursor-pointer backdrop-blur-md">
+            <option value="all">부산시 전체 (16개 구·군)</option>
+            <option value="강서구">강서구 (187개)</option>
+            <option value="금정구">금정구 (180개)</option>
+            <option value="기장군">기장군 (178개)</option>
+            <option value="남구">남구 (174개)</option>
+            <option value="동구">동구 (97개)</option>
+            <option value="동래구">동래구 (177개)</option>
+            <option value="부산진구">부산진구 (362개)</option>
+            <option value="북구">북구 (153개)</option>
+            <option value="사상구">사상구 (195개)</option>
+            <option value="사하구">사하구 (217개)</option>
+            <option value="서구">서구 (82개)</option>
+            <option value="수영구">수영구 (167개)</option>
+            <option value="연제구">연제구 (147개)</option>
+            <option value="영도구">영도구 (82개)</option>
+            <option value="중구">중구 (87개)</option>
+            <option value="해운대구">해운대구 (295개)</option>
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-[#8e8e93]">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+        </div>
+
+        <!-- ⭐ 즐겨찾기 버튼 -->
+        <button id="btn-fav-filter" class="apple-pressable shrink-0 px-3.5 py-2 bg-white/45 hover:bg-[#FF9500]/15 border border-white/60 text-[#1c1c1e] text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-2xs backdrop-blur-md" title="즐겨찾기한 편의점만 보기">
+          <svg class="w-4 h-4 text-[#FF9500] fill-[#FF9500] stroke-[#FF9500]" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+          </svg>
+          <span>즐겨찾기</span>
+          <span id="fav-count-badge" class="px-1.5 py-0.2 bg-[#FF9500]/20 text-[#FF9500] text-[10px] font-extrabold rounded-full">0</span>
+        </button>
+      </div>
+
+      <!-- 브랜드 선택 칩 (Apple Translucent Segmented Style) -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5 px-0.5">
+          <span class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider">브랜드 선택</span>
+          <span class="text-[11px] text-[#8e8e93]">원클릭 필터</span>
+        </div>
+        <div class="grid grid-cols-4 gap-1.5">
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-[#007AFF] text-white rounded-xl text-xs font-bold transition shadow-sm flex flex-col items-center" data-brand="all">
+            <span>전체</span>
+            <span class="text-[9px] opacity-80">2,780</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="CU">
+            <span class="text-[#7B2CBF]">CU</span>
+            <span class="text-[9px] text-[#8e8e93]">878</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="GS25">
+            <span class="text-[#007AFF]">GS25</span>
+            <span class="text-[9px] text-[#8e8e93]">824</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="세븐일레븐">
+            <span class="text-[#34C759]">세븐</span>
+            <span class="text-[9px] text-[#8e8e93]">407</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="이마트24">
+            <span class="text-[#FF9500]">이마트24</span>
+            <span class="text-[9px] text-[#8e8e93]">290</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="미니스톱">
+            <span class="text-[#004085]">미니스톱</span>
+            <span class="text-[9px] text-[#8e8e93]">35</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="씨스페이스">
+            <span class="text-[#FF3B30]">씨스페이스</span>
+            <span class="text-[9px] text-[#8e8e93]">11</span>
+          </button>
+          <button class="brand-chip apple-pressable py-1.5 px-1 bg-white/45 border border-white/60 text-[#1c1c1e] rounded-xl text-xs font-bold hover:bg-white/70 transition flex flex-col items-center backdrop-blur-sm" data-brand="기타">
+            <span class="text-[#8e8e93]">기타/개인</span>
+            <span class="text-[9px] text-[#8e8e93]">335</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 내 위치 반경 필터 -->
+      <div id="radius-filter-box" class="hidden pt-1">
+        <div class="flex items-center justify-between mb-1 px-0.5">
+          <span class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider">탐색 반경</span>
+        </div>
+        <div class="grid grid-cols-4 gap-1.5 p-1 bg-black/[0.04] rounded-xl">
+          <button class="radius-chip apple-pressable py-1 px-2 bg-[#007AFF] text-white text-xs font-bold rounded-lg transition shadow-2xs" data-radius="all">전체</button>
+          <button class="radius-chip apple-pressable py-1 px-2 bg-white/50 text-[#636366] text-xs font-semibold rounded-lg hover:bg-white/80 transition" data-radius="0.5">500m</button>
+          <button class="radius-chip apple-pressable py-1 px-2 bg-white/50 text-[#636366] text-xs font-semibold rounded-lg hover:bg-white/80 transition" data-radius="1">1km</button>
+          <button class="radius-chip apple-pressable py-1 px-2 bg-white/50 text-[#636366] text-xs font-semibold rounded-lg hover:bg-white/80 transition" data-radius="3">3km</button>
+        </div>
+      </div>
+
+      <!-- iOS Style 검색창 (투명 글래스) -->
+      <div class="relative">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#8e8e93]">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </div>
+        <input type="text" id="search-input" placeholder="점포명, 지점명, 도로명 주소..." 
+               class="w-full pl-9 pr-8 py-2 bg-white/40 focus:bg-white/80 border border-white/60 focus:border-white/90 rounded-xl text-xs font-medium text-[#1c1c1e] placeholder-[#8e8e93] focus:outline-hidden focus:ring-2 focus:ring-[#007AFF]/35 transition shadow-2xs backdrop-blur-md">
+        <button id="search-clear" class="hidden absolute inset-y-0 right-0 pr-2.5 flex items-center text-[#8e8e93] hover:text-[#1c1c1e]">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- 결과 카운터 바 -->
+    <div class="px-5 py-2 bg-black/[0.02] border-y border-black/[0.03] flex items-center justify-between text-xs">
+      <span id="store-count" class="font-bold text-[#007AFF]">총 2,780개 점포</span>
+      <span id="sort-indicator" class="text-[#8e8e93] text-[11px] font-medium">카드 터치 시 위치 이동</span>
+    </div>
+
+    <!-- 점포 카드 리스트 -->
+    <div id="store-list" class="flex-1 overflow-y-auto p-3.5 space-y-2.5">
+      <!-- 동적 렌더링 -->
+    </div>
+  </aside>
+
+  <!-- ========================================== -->
+  <!-- 3. 모바일 상단 플로팅 검색/필터 바 -->
+  <!-- ========================================== -->
+  <div class="md:hidden absolute top-0 left-0 right-0 z-[1000] p-3 pointer-events-none flex flex-col gap-2">
+    <!-- 검색 카드 -->
+    <div class="pointer-events-auto apple-glass rounded-2xl shadow-lg p-2 flex items-center gap-2">
+      <!-- 모바일 구 선택 -->
+      <select id="mobile-gu-select" class="apple-pressable bg-white/40 text-[#1c1c1e] text-xs font-bold rounded-xl px-2.5 py-1.5 border border-white/50 focus:ring-2 focus:ring-[#007AFF] outline-hidden shrink-0">
+        <option value="all">전체 구</option>
+        <option value="강서구">강서구</option>
+        <option value="금정구">금정구</option>
+        <option value="기장군">기장군</option>
+        <option value="남구">남구</option>
+        <option value="동구">동구</option>
+        <option value="동래구">동래구</option>
+        <option value="부산진구">부산진구</option>
+        <option value="북구">북구</option>
+        <option value="사상구">사상구</option>
+        <option value="사하구">사하구</option>
+        <option value="서구">서구</option>
+        <option value="수영구">수영구</option>
+        <option value="연제구">연제구</option>
+        <option value="영도구">영도구</option>
+        <option value="중구">중구</option>
+        <option value="해운대구">해운대구</option>
+      </select>
+      
+      <!-- 검색창 -->
+      <div class="relative flex-1">
+        <input type="text" id="mobile-search-input" placeholder="점포명, 도로명..." 
+               class="w-full bg-white/40 border border-white/50 rounded-xl px-3 py-1.5 text-xs text-[#1c1c1e] placeholder-[#8e8e93] focus:outline-hidden focus:ring-2 focus:ring-[#007AFF] font-medium">
+      </div>
+
+      <!-- 모바일 즐겨찾기 버튼 -->
+      <button id="mobile-btn-fav" class="apple-pressable shrink-0 p-1.5 bg-[#FF9500]/15 hover:bg-[#FF9500]/25 text-[#FF9500] rounded-xl transition" title="즐겨찾기">
+        <svg class="w-4 h-4 fill-[#FF9500] stroke-[#FF9500]" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 브랜드 가로 스크롤 칩 (모바일) -->
+    <div class="pointer-events-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5">
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 bg-[#007AFF] text-white rounded-full text-xs font-bold shadow-md transition" data-brand="all">전체</button>
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 apple-glass text-[#7B2CBF] rounded-full text-xs font-bold shadow-sm transition" data-brand="CU">CU</button>
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 apple-glass text-[#007AFF] rounded-full text-xs font-bold shadow-sm transition" data-brand="GS25">GS25</button>
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 apple-glass text-[#34C759] rounded-full text-xs font-bold shadow-sm transition" data-brand="세븐일레븐">세븐</button>
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 apple-glass text-[#FF9500] rounded-full text-xs font-bold shadow-sm transition" data-brand="이마트24">이마트24</button>
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 apple-glass text-[#004085] rounded-full text-xs font-bold shadow-sm transition" data-brand="미니스톱">미니스톱</button>
+      <button class="brand-chip apple-pressable shrink-0 px-3.5 py-1 apple-glass text-[#636366] rounded-full text-xs font-bold shadow-sm transition" data-brand="기타">기타</button>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 4. 플로팅 액션 버튼 (Apple Maps Style) -->
+  <!-- ========================================== -->
+  <div class="absolute right-4 bottom-24 md:bottom-6 z-[1000] flex flex-col gap-3">
+    <!-- 내 위치 찾기 버튼 -->
+    <button id="btn-my-location" class="apple-pressable w-12 h-12 apple-glass hover:bg-white/80 text-[#1c1c1e] hover:text-[#007AFF] rounded-full shadow-lg flex items-center justify-center transition" title="내 위치 찾기">
+      <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+    </button>
+
+    <!-- 부산 전체보기 리셋 버튼 -->
+    <button id="btn-reset-view" class="apple-pressable w-12 h-12 apple-glass hover:bg-white/80 text-[#1c1c1e] hover:text-[#007AFF] rounded-full shadow-lg flex items-center justify-center transition" title="부산 전체보기">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+    </button>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 5. 모바일 iOS 하단 바텀 시트 (Modal Style) -->
+  <!-- ========================================== -->
+  <div id="bottom-sheet" class="md:hidden absolute bottom-0 left-0 right-0 z-[1000] apple-glass rounded-t-[32px] shadow-[0_-15px_35px_rgba(0,0,0,0.12)] bottom-sheet state-collapsed flex flex-col max-h-[86vh] h-[86vh]">
+    <!-- 드래그 핸들 & 요약 헤더 -->
+    <div id="sheet-handle" class="pt-3 pb-2 px-5 flex flex-col items-center cursor-pointer select-none">
+      <div class="w-10 h-1 bg-black/20 rounded-full mb-2.5"></div>
+      <div class="w-full flex items-center justify-between">
+        <div>
+          <span id="sheet-count" class="text-xs font-bold text-[#007AFF]">총 2,780개 점포</span>
+          <span id="sheet-sub" class="text-[11px] text-[#636366] ml-1 font-medium">가까운 순</span>
+        </div>
+        <button id="sheet-toggle" class="p-1 text-[#8e8e93] hover:text-[#1c1c1e] rounded-md">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 모바일 점포 카드 리스트 -->
+    <div id="sheet-list" class="flex-1 overflow-y-auto p-3.5 space-y-2.5 pb-10">
+      <!-- 동적 렌더링 -->
+    </div>
+  </div>
+
+  <!-- 데이터 스크립트 -->
+  <script src="data/stores.js"></script>
+
+  <!-- 모듈 스크립트 -->
+  <script src="js/map.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
+
+  <!-- 모바일 검색/구 동기화 인라인 스크립트 -->
+  <script>
+    const mobileGu = document.getElementById('mobile-gu-select');
+    const desktopGu = document.getElementById('gu-select');
+    const mobileSearch = document.getElementById('mobile-search-input');
+    const desktopSearch = document.getElementById('search-input');
+
+    if (mobileGu && desktopGu) {
+      mobileGu.addEventListener('change', (e) => {
+        desktopGu.value = e.target.value;
+        desktopGu.dispatchEvent(new Event('change'));
+      });
+      desktopGu.addEventListener('change', (e) => {
+        mobileGu.value = e.target.value;
+      });
+    }
+
+    if (mobileSearch && desktopSearch) {
+      mobileSearch.addEventListener('input', (e) => {
+        desktopSearch.value = e.target.value;
+        desktopSearch.dispatchEvent(new Event('input'));
+      });
+      desktopSearch.addEventListener('input', (e) => {
+        mobileSearch.value = e.target.value;
+      });
+    }
+  </script>
+</body>
+</html>
