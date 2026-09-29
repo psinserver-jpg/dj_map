@@ -27,7 +27,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const state = {
     gu: 'all',
     brand: 'all',
-    radius: 'all', // 'all', '0.5', '1', '3' (km)
+    dong: 'all',
+    radiusOn: false,
+    radiusIdx: 5, // RADIUS_STEPS 인덱스 (기본 1km)
+    sort: 'distance', // 'distance' | 'name' | 'brand' | 'region'
+    groupBy: false, // 지역(구 또는 동)별로 묶어서 보기
     onlyFavorites: false,
     keyword: '',
     page: 1,
@@ -35,13 +39,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     bottomSheetState: 'collapsed' // 'collapsed', 'half', 'expanded'
   };
 
+  // 반경 슬라이더 단계 (km)
+  const RADIUS_STEPS = [0.1, 0.2, 0.3, 0.5, 0.7, 1, 1.5, 2, 3, 5, 7, 10];
+  const BRAND_ORDER = ['CU', 'GS25', '세븐일레븐', '이마트24', '미니스톱', '씨스페이스', '기타'];
+  const collator = new Intl.Collator('ko');
+
+  // 데스크톱/모바일에 같은 컨트롤이 있으므로 클래스로 한 번에 다룸
+  const elDongSelects = document.querySelectorAll('.dong-select');
+  const elSortSelects = document.querySelectorAll('.sort-select');
+  const elGroupToggles = document.querySelectorAll('.group-toggle');
+  const elRadiusBoxes = document.querySelectorAll('.radius-box');
+  const elRadiusRanges = document.querySelectorAll('.radius-range');
+  const elRadiusToggles = document.querySelectorAll('.radius-toggle');
+  const elRadiusLabels = document.querySelectorAll('.radius-label');
+  const elOriginHints = document.querySelectorAll('.origin-hint');
+  const elBtnBasemap = document.getElementById('btn-basemap');
+  const elBasemapMenu = document.getElementById('basemap-menu');
+  const elBasemapOpts = document.querySelectorAll('.basemap-opt');
+
   // DOM Elements
   const elGuSelect = document.getElementById('gu-select');
   const elSearchInput = document.getElementById('search-input');
   const elSearchClear = document.getElementById('search-clear');
   const elBrandChips = document.querySelectorAll('.brand-chip');
-  const elRadiusChips = document.querySelectorAll('.radius-chip');
-  const elRadiusBox = document.getElementById('radius-filter-box');
   const elStoreCount = document.getElementById('store-count');
   const elStoreList = document.getElementById('store-list');
   const elSortIndicator = document.getElementById('sort-indicator');
@@ -66,7 +86,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const elSheetList = document.getElementById('sheet-list');
 
   // 1. 지도 초기화
-  MapController.init('map');
+  MapController.init('map', {
+    // 지도 우클릭 / 길게 누르기 → 그 위치를 기준점으로 거리 정렬
+    onContextMenu: (latlng) => setOrigin({ lat: latlng.lat, lng: latlng.lng }, false)
+  });
 
   // ==========================================
   // 즐겨찾기 글로벌 핸들러
@@ -148,6 +171,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       console.log(`Successfully loaded ${allStores.length} stores.`);
       updateFavBadge();
+      populateDongOptions();
+      syncControls();
       
       // 초기 필터 적용 (우선 부산 전체)
       applyFilters(true);
@@ -179,21 +204,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     MapController.locateUser(
       (coords) => {
-        userCoords = coords;
-        console.log('User location found:', userCoords);
-
-        if (elLocationTitle) elLocationTitle.textContent = '📍 내 현재 위치 기준 탐색 중';
-        if (elLocationDesc) elLocationDesc.textContent = '가장 가까운 거리 순서대로 정렬되었습니다';
         if (elBtnGetLocation) {
           elBtnGetLocation.textContent = '내 위치 재설정';
           elBtnGetLocation.classList.remove('opacity-75');
         }
-
-        // 반경 필터 박스 표시
-        if (elRadiusBox) elRadiusBox.classList.remove('hidden');
-
-        // 거리순 정렬 및 필터 적용
-        applyFilters(false);
+        setOrigin(coords, true);
       },
       (errMsg) => {
         console.warn('Geolocation error:', errMsg);
@@ -210,6 +225,74 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
     );
+  }
+
+  // 기준점 설정 (GPS 또는 지도에서 지정)
+  function setOrigin(coords, isGps) {
+    userCoords = { lat: coords.lat, lng: coords.lng };
+    if (!isGps) MapController.setOrigin(coords.lat, coords.lng, { isGps: false });
+
+    if (elLocationTitle) elLocationTitle.textContent = isGps ? '📍 내 현재 위치 기준 탐색 중' : '📌 지도에서 지정한 위치 기준';
+    if (elLocationDesc) elLocationDesc.textContent = '다른 곳을 우클릭(길게 누르기)하면 기준점 변경';
+    elOriginHints.forEach(el => el.classList.add('hidden'));
+    elRadiusBoxes.forEach(el => el.classList.remove('hidden'));
+
+    // 기준점이 생기면 가까운 순 정렬로 전환
+    state.sort = 'distance';
+    syncControls();
+    applyFilters(false);
+  }
+
+  function currentRadiusKm() {
+    return state.radiusOn ? RADIUS_STEPS[state.radiusIdx] : null;
+  }
+
+  // 구 선택에 맞춰 행정동 옵션 채우기
+  function populateDongOptions() {
+    elDongSelects.forEach(sel => {
+      if (state.gu === 'all') {
+        sel.innerHTML = `<option value="all">${sel.dataset.placeholder || '구·군을 먼저 선택하세요'}</option>`;
+        sel.disabled = true;
+        return;
+      }
+      const counts = {};
+      allStores.forEach(s => {
+        if (s.gu === state.gu && s.dong) counts[s.dong] = (counts[s.dong] || 0) + 1;
+      });
+      const dongs = Object.keys(counts).sort(collator.compare);
+      sel.innerHTML = `<option value="all">${state.gu} 전체 동 (${dongs.length}개)</option>` +
+        dongs.map(d => `<option value="${d}">${d} (${counts[d]}개)</option>`).join('');
+      sel.disabled = false;
+      sel.value = state.dong;
+    });
+  }
+
+  // 여러 곳에 있는 동일 컨트롤들의 표시 상태 동기화
+  function syncControls() {
+    elSortSelects.forEach(sel => {
+      sel.value = state.sort;
+      const distOpt = sel.querySelector('option[value="distance"]');
+      if (distOpt) {
+        distOpt.disabled = !userCoords;
+        distOpt.textContent = userCoords ? '📍 가까운 순' : '📍 가까운 순 (위치 필요)';
+      }
+      if (!userCoords && state.sort === 'distance') sel.value = 'name';
+    });
+    elGroupToggles.forEach(btn => {
+      btn.classList.toggle('bg-[#007AFF]', state.groupBy);
+      btn.classList.toggle('text-white', state.groupBy);
+      btn.classList.toggle('border-[#007AFF]', state.groupBy);
+      btn.classList.toggle('bg-white/50', !state.groupBy);
+      btn.classList.toggle('text-[#636366]', !state.groupBy);
+    });
+    const km = RADIUS_STEPS[state.radiusIdx];
+    const label = km < 1 ? `${Math.round(km * 1000)}m` : `${km}km`;
+    elRadiusRanges.forEach(r => { r.value = state.radiusIdx; r.disabled = !state.radiusOn; });
+    elRadiusToggles.forEach(t => { t.checked = state.radiusOn; });
+    elRadiusLabels.forEach(l => {
+      l.textContent = label;
+      l.classList.toggle('opacity-50', !state.radiusOn);
+    });
   }
 
   // 두 좌표 간 거리 계산 (km)
@@ -246,6 +329,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    const maxDist = userCoords ? currentRadiusKm() : null;
+
     filteredStores = allStores.filter(store => {
       // 1. 즐겨찾기 필터
       if (state.onlyFavorites && !favorites.has(store.id)) {
@@ -268,12 +353,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      // 4. 반경 필터 (내 위치 기준)
-      if (userCoords && state.radius !== 'all') {
-        const maxDist = parseFloat(state.radius);
-        if (store.distance > maxDist) {
-          return false;
-        }
+      // 2-1. 행정동 필터
+      if (state.gu !== 'all' && state.dong !== 'all' && store.dong !== state.dong) {
+        return false;
+      }
+
+      // 4. 반경 필터 (기준점 기준)
+      if (userCoords && maxDist !== null && store.distance > maxDist) {
+        return false;
       }
 
       // 5. 키워드 필터 (상호명, 지점명, 도로명, 지번주소)
@@ -294,15 +381,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       return true;
     });
 
-    // 정렬: 내 위치가 있으면 무조건 거리순(오름차순) 정렬!
-    if (userCoords) {
-      filteredStores.sort((a, b) => a.distance - b.distance);
-      if (elSortIndicator) elSortIndicator.textContent = '📍 내 위치에서 가까운 순';
-      if (elSheetSub) elSheetSub.textContent = '📍 가까운 순';
-    } else {
-      if (elSortIndicator) elSortIndicator.textContent = '카드 클릭 시 지도 이동';
-      if (elSheetSub) elSheetSub.textContent = '';
-    }
+    sortStores(filteredStores);
+
+    // 반경 원 표시
+    MapController.setRadiusCircle(userCoords, maxDist);
 
     state.page = 1;
 
@@ -314,6 +396,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 점포 목록 렌더링
     renderStoreList(filteredStores);
+  }
+
+  // 정렬 (+ 지역별 묶기 시 그룹 단위로 먼저 정렬)
+  function groupKeyOf(store) {
+    return state.gu === 'all' ? (store.gu || '기타') : (store.dong || '기타');
+  }
+
+  function sortStores(list) {
+    const sortKey = (state.sort === 'distance' && !userCoords) ? 'name' : state.sort;
+    const byName = (a, b) => collator.compare(`${a.name}${a.branch || ''}`, `${b.name}${b.branch || ''}`);
+    const brandIdx = (s) => {
+      const i = BRAND_ORDER.indexOf(s.brand);
+      return i === -1 ? BRAND_ORDER.length - 1 : i;
+    };
+    const cmp = {
+      distance: (a, b) => a.distance - b.distance,
+      name: byName,
+      brand: (a, b) => (brandIdx(a) - brandIdx(b)) || byName(a, b),
+      region: (a, b) => collator.compare(a.gu || '', b.gu || '') || collator.compare(a.dong || '', b.dong || '') || byName(a, b)
+    }[sortKey];
+
+    if (!state.groupBy) {
+      list.sort(cmp);
+    } else {
+      // 그룹 순서: 가까운 순이면 그룹 내 최단거리 기준, 아니면 지역명 가나다
+      const groupRank = {};
+      if (sortKey === 'distance') {
+        list.forEach(s => {
+          const k = groupKeyOf(s);
+          groupRank[k] = Math.min(groupRank[k] ?? Infinity, s.distance);
+        });
+      }
+      const cmpGroup = sortKey === 'distance'
+        ? (a, b) => groupRank[a] - groupRank[b]
+        : (a, b) => collator.compare(a, b);
+      list.sort((a, b) => cmpGroup(groupKeyOf(a), groupKeyOf(b)) || cmp(a, b));
+    }
+
+    const sortLabel = {
+      distance: '📍 가까운 순', name: '가나다 순', brand: '브랜드 순', region: '지역 순'
+    }[sortKey];
+    if (elSheetSub) elSheetSub.textContent = sortLabel + (state.groupBy ? ' · 지역별' : '');
   }
 
   // 카운터 업데이트
@@ -346,7 +470,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span class="px-2.5 py-0.5 text-[11px] font-bold rounded-full ${config.badgeClass} shadow-2xs">
               ${brand}
             </span>
-            <span class="text-xs text-[#8e8e93] font-medium">${store.gu}</span>
+            <span class="text-xs text-[#8e8e93] font-medium">${store.gu} ${store.dong || ''}</span>
           </div>
           ${distText ? `
             <span class="text-xs font-bold text-[#007AFF] bg-[#007AFF]/12 px-2.5 py-0.5 rounded-full shrink-0">
@@ -398,7 +522,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       `;
     } else {
-      html = displayStores.map((store, idx) => createStoreCardHTML(store, idx)).join('');
+      if (state.groupBy) {
+        const groupCounts = {};
+        stores.forEach(s => {
+          const k = groupKeyOf(s);
+          groupCounts[k] = (groupCounts[k] || 0) + 1;
+        });
+        let prevKey = null;
+        html = displayStores.map((store, idx) => {
+          const k = groupKeyOf(store);
+          let header = '';
+          if (k !== prevKey) {
+            prevKey = k;
+            header = `
+              <div class="sticky top-0 z-10 -mx-1 px-2 py-1.5 mt-1 flex items-center justify-between rounded-xl apple-glass-subtle">
+                <span class="text-xs font-bold text-[#1c1c1e]">📍 ${k}</span>
+                <span class="text-[11px] font-semibold text-[#8e8e93]">${groupCounts[k].toLocaleString()}개</span>
+              </div>`;
+          }
+          return header + createStoreCardHTML(store, idx);
+        }).join('');
+      } else {
+        html = displayStores.map((store, idx) => createStoreCardHTML(store, idx)).join('');
+      }
       if (hasMore) {
         html += `
           <div class="p-3 text-center">
@@ -457,6 +603,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     elBottomSheet.classList.remove('state-collapsed', 'state-half', 'state-expanded');
     elBottomSheet.classList.add(`state-${newState}`);
+    document.body.dataset.sheet = newState;
 
     if (elSheetToggle) {
       if (newState === 'expanded') {
@@ -539,6 +686,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (elGuSelect) {
     elGuSelect.addEventListener('change', (e) => {
       state.gu = e.target.value;
+      state.dong = 'all';
+      populateDongOptions();
       applyFilters();
       MapController.focusGu(state.gu);
     });
@@ -564,24 +713,84 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // 반경 칩 클릭 (내 위치 기준)
-  elRadiusChips.forEach(chip => {
-    chip.addEventListener('click', () => {
-      const radius = chip.getAttribute('data-radius');
-      state.radius = radius;
+  // 행정동 셀렉트
+  elDongSelects.forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      state.dong = e.target.value;
+      elDongSelects.forEach(o => { o.value = state.dong; });
+      applyFilters(true);
+    });
+  });
 
-      elRadiusChips.forEach(c => {
-        const isSelected = c.getAttribute('data-radius') === radius;
-        c.classList.toggle('bg-[#007AFF]', isSelected);
-        c.classList.toggle('text-white', isSelected);
-        c.classList.toggle('shadow-2xs', isSelected);
-        c.classList.toggle('bg-white', !isSelected);
-        c.classList.toggle('text-[#636366]', !isSelected);
-      });
-
+  // 정렬 셀렉트
+  elSortSelects.forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      state.sort = e.target.value;
+      syncControls();
       applyFilters();
     });
   });
+
+  // 지역별 묶기 토글
+  elGroupToggles.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.groupBy = !state.groupBy;
+      syncControls();
+      applyFilters();
+    });
+  });
+
+  // 반경 제한 on/off
+  elRadiusToggles.forEach(t => {
+    t.addEventListener('change', (e) => {
+      state.radiusOn = e.target.checked;
+      syncControls();
+      applyFilters();
+      if (state.radiusOn) MapController.setRadiusCircle(userCoords, currentRadiusKm(), true);
+    });
+  });
+
+  // 반경 슬라이더 (드래그 중에는 원만 갱신, 놓으면 필터 적용)
+  elRadiusRanges.forEach(r => {
+    r.addEventListener('input', (e) => {
+      state.radiusIdx = parseInt(e.target.value, 10);
+      syncControls();
+      MapController.setRadiusCircle(userCoords, currentRadiusKm());
+    });
+    r.addEventListener('change', () => {
+      applyFilters();
+      MapController.setRadiusCircle(userCoords, currentRadiusKm(), true);
+    });
+  });
+
+  // 지도 스타일 (일반/위성) 메뉴
+  function syncBasemapMenu() {
+    const cur = MapController.getBaseLayer();
+    elBasemapOpts.forEach(o => {
+      const on = o.getAttribute('data-base') === cur;
+      o.classList.toggle('bg-[#007AFF]', on);
+      o.classList.toggle('text-white', on);
+      o.classList.toggle('text-[#1c1c1e]', !on);
+      o.classList.toggle('hover:bg-white/70', !on);
+    });
+  }
+  if (elBtnBasemap && elBasemapMenu) {
+    elBtnBasemap.addEventListener('click', (e) => {
+      e.stopPropagation();
+      syncBasemapMenu();
+      elBasemapMenu.classList.toggle('hidden');
+    });
+    elBasemapOpts.forEach(o => {
+      o.addEventListener('click', (e) => {
+        e.stopPropagation();
+        MapController.setBaseLayer(o.getAttribute('data-base'));
+        syncBasemapMenu();
+        elBasemapMenu.classList.add('hidden');
+      });
+    });
+    document.addEventListener('click', () => elBasemapMenu.classList.add('hidden'));
+  }
 
   // 키워드 검색 입력 (디바운스 200ms)
   let debounceTimeout = null;
@@ -615,7 +824,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     elBtnReset.addEventListener('click', () => {
       state.gu = 'all';
       state.brand = 'all';
-      state.radius = 'all';
+      state.dong = 'all';
+      state.radiusOn = false;
+      state.groupBy = false;
       state.onlyFavorites = false;
       state.keyword = '';
 
@@ -637,13 +848,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         c.classList.toggle('text-[#1c1c1e]', !isAll);
       });
 
-      elRadiusChips.forEach(c => {
-        const isAll = c.getAttribute('data-radius') === 'all';
-        c.classList.toggle('bg-[#007AFF]', isAll);
-        c.classList.toggle('text-white', isAll);
-        c.classList.toggle('bg-white', !isAll);
-        c.classList.toggle('text-[#636366]', !isAll);
-      });
+      if (userCoords) state.sort = 'distance';
+      populateDongOptions();
+      syncControls();
 
       MapController.resetView();
       applyFilters();

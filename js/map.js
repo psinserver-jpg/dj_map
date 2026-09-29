@@ -8,6 +8,11 @@ const MapController = (() => {
   let clusterGroup = null;
   let userMarker = null;
   let userCircle = null;
+  let radiusCircle = null;
+  let baseLayers = {};
+  let currentBase = null;
+  let onContextMenu = null;
+  const BASE_STORAGE_KEY = 'BUSAN_CS_BASEMAP_V1';
   const storeMarkerMap = new Map();
 
   // 부산 16개 구/군 중심 좌표
@@ -139,7 +144,8 @@ const MapController = (() => {
   }
 
   // 초기화
-  function init(containerId = 'map') {
+  function init(containerId = 'map', options = {}) {
+    onContextMenu = options.onContextMenu || null;
     // 부산 중심 좌표 (부산시청 인근)
     const BUSAN_CENTER = [35.1796, 129.0756];
 
@@ -154,59 +160,60 @@ const MapController = (() => {
     // 줌 컨트롤 우측 상단 배치
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    // 100% 무료 & 워터마크 없는 글로벌 타일 레이어 설정
-    // 1. 기본 거리 지도 (OSM DE: 403 없음, 전 세계 데이터, 고줌 완벽 지원)
-    const osmDeTile = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
+    // 타일 레이어 설정 (모두 무료·키 불필요)
+    // 1. 기본 거리 지도 (OSM DE)
+    const streetTile = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
       maxZoom: 20,
       maxNativeZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
     });
 
-    // 2. 고해상도 위성 하이브리드 (위성 사진 + 도로명/지명 라벨)
-    const hybridTile = L.layerGroup([
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 20,
-        maxNativeZoom: 19
-      }),
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 20,
-        maxNativeZoom: 19,
-        attribution: 'Labels &copy; Esri'
-      })
-    ]);
-
-    // 3. 순수 위성 사진 (Esri World Imagery)
-    const satelliteTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    // 2. 위성 사진 (Esri World Imagery)
+    const esriImagery = () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 20,
       maxNativeZoom: 19,
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
     });
+    const satelliteTile = esriImagery();
 
-    // 4. Esri 거리 지도 (한국어 지명, 일부 지역 제한 있음)
-    const esriStreetTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    // 3. 위성 하이브리드 (위성 + 도로 + 지명 라벨)
+    const hybridTile = L.layerGroup([
+      esriImagery(),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 20, maxNativeZoom: 19
+      }),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 20, maxNativeZoom: 19,
+        attribution: 'Labels &copy; Esri'
+      })
+    ]);
+
+    // 4. 지형 지도
+    const topoTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 20,
       maxNativeZoom: 19,
-      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, NAVTEQ'
+      attribution: 'Tiles &copy; Esri'
     });
 
-    // 5. 지형/지세 지도 (Esri World Topo Map)
-    const esriTopoTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 20,
-      maxNativeZoom: 19,
-      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, USGS'
+    baseLayers = {
+      street: streetTile,
+      satellite: satelliteTile,
+      hybrid: hybridTile,
+      topo: topoTile
+    };
+
+    // 마지막으로 선택한 지도 스타일 복원
+    let savedBase = 'street';
+    try {
+      const v = localStorage.getItem(BASE_STORAGE_KEY);
+      if (v && baseLayers[v]) savedBase = v;
+    } catch (e) { /* ignore */ }
+    setBaseLayer(savedBase);
+
+    // 지도 우클릭 / 길게 누르기 → 기준점 지정
+    map.on('contextmenu', (e) => {
+      if (onContextMenu) onContextMenu(e.latlng);
     });
-
-    // 기본 지도 적용 (OSM DE — 고줌에서도 빈 타일 없음)
-    osmDeTile.addTo(map);
-
-    // 지도 스타일 선택 컨트롤
-    L.control.layers({
-      '거리 지도 (기본)': osmDeTile,
-      '위성 하이브리드': hybridTile,
-      '순수 위성 사진': satelliteTile,
-      'Esri 거리 지도': esriStreetTile,
-      '지형 지도': esriTopoTile
-    }, null, { position: 'topright' }).addTo(map);
 
     // 마커 클러스터 그룹 초기화
     clusterGroup = L.markerClusterGroup({
@@ -326,35 +333,8 @@ const MapController = (() => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
 
-        if (userMarker) map.removeLayer(userMarker);
-        if (userCircle) map.removeLayer(userCircle);
-
         const accuracy = Math.min(pos.coords.accuracy || 100, 500);
-
-        const userIcon = L.divIcon({
-          className: 'user-location-marker',
-          iconSize: [22, 22],
-          iconAnchor: [11, 11]
-        });
-
-        userCircle = L.circle([lat, lng], {
-          radius: Math.max(accuracy, 200),
-          color: '#2563eb',
-          fillColor: '#3b82f6',
-          fillOpacity: 0.12,
-          weight: 1.5
-        }).addTo(map);
-
-        userMarker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 2000 })
-          .addTo(map)
-          .bindPopup(`
-            <div class="p-2.5 text-center font-sans">
-              <span class="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded-full mb-1">내 위치</span>
-              <p class="text-xs font-bold text-slate-800">현재 계신 위치입니다</p>
-              <p class="text-[10px] text-slate-400 mt-0.5">오차 반경 약 ${Math.round(accuracy)}m</p>
-            </div>
-          `);
-
+        setOrigin(lat, lng, { accuracy, isGps: true });
         map.flyTo([lat, lng], 15, { duration: 1.0 });
 
         if (onSuccess) onSuccess({ lat, lng, accuracy });
@@ -370,6 +350,78 @@ const MapController = (() => {
     );
   }
 
+  // 기준점(내 위치 또는 지도에서 지정한 위치) 마커 표시
+  function setOrigin(lat, lng, { accuracy = 0, isGps = false } = {}) {
+    if (!map) return;
+    if (userMarker) map.removeLayer(userMarker);
+    if (userCircle) map.removeLayer(userCircle);
+    userCircle = null;
+
+    const userIcon = L.divIcon({
+      className: isGps ? 'user-location-marker' : 'user-location-marker origin-manual',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11]
+    });
+
+    if (isGps) {
+      userCircle = L.circle([lat, lng], {
+        radius: Math.max(accuracy, 30),
+        color: '#2563eb',
+        fillColor: '#3b82f6',
+        fillOpacity: 0.12,
+        weight: 1.5,
+        interactive: false
+      }).addTo(map);
+    }
+
+    userMarker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 2000 })
+      .addTo(map)
+      .bindPopup(`
+        <div class="p-2.5 text-center font-sans">
+          <span class="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded-full mb-1">${isGps ? '내 위치' : '기준점'}</span>
+          <p class="text-xs font-bold text-slate-800">${isGps ? '현재 계신 위치입니다' : '지도에서 지정한 기준 위치입니다'}</p>
+          ${isGps ? `<p class="text-[10px] text-slate-400 mt-0.5">오차 반경 약 ${Math.round(accuracy)}m</p>` : ''}
+        </div>
+      `);
+  }
+
+  // 탐색 반경 원 표시 (km). km 가 없으면 제거
+  function setRadiusCircle(center, km, fit = false) {
+    if (!map) return;
+    if (radiusCircle) {
+      map.removeLayer(radiusCircle);
+      radiusCircle = null;
+    }
+    if (!center || !km) return;
+
+    radiusCircle = L.circle([center.lat, center.lng], {
+      radius: km * 1000,
+      color: '#007AFF',
+      weight: 2,
+      dashArray: '6 6',
+      fillColor: '#007AFF',
+      fillOpacity: 0.06,
+      interactive: false
+    }).addTo(map);
+
+    if (fit) {
+      map.flyToBounds(radiusCircle.getBounds(), { padding: [40, 40], duration: 0.6 });
+    }
+  }
+
+  // 지도 스타일 변경: 'street' | 'satellite' | 'hybrid' | 'topo'
+  function setBaseLayer(name) {
+    if (!map || !baseLayers[name]) return;
+    if (currentBase && baseLayers[currentBase]) {
+      map.removeLayer(baseLayers[currentBase]);
+    }
+    baseLayers[name].addTo(map);
+    if (baseLayers[name].bringToBack) baseLayers[name].bringToBack();
+    currentBase = name;
+    map.getContainer().classList.toggle('is-satellite', name === 'satellite' || name === 'hybrid');
+    try { localStorage.setItem(BASE_STORAGE_KEY, name); } catch (e) { /* ignore */ }
+  }
+
   // 부산 전체 뷰로 리셋
   function resetView() {
     if (!map) return;
@@ -383,6 +435,10 @@ const MapController = (() => {
     focusGu,
     locateUser,
     resetView,
+    setOrigin,
+    setRadiusCircle,
+    setBaseLayer,
+    getBaseLayer: () => currentBase,
     getMap: () => map,
     GU_CENTERS,
     BRAND_CONFIG

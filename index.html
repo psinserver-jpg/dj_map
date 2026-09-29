@@ -18,7 +18,7 @@
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Custom Apple HIG & Spring Motion CSS -->
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=8">
 </head>
 <body class="h-screen w-screen overflow-hidden bg-[#E5E5EA] relative flex text-[#1c1c1e] select-none">
 
@@ -58,7 +58,7 @@
         </div>
         <div class="truncate">
           <p id="location-title" class="text-xs font-bold text-[#1c1c1e] truncate">현재 내 위치 찾는 중...</p>
-          <p id="location-desc" class="text-[11px] text-[#636366] truncate">위치 권한 허용 시 가까운 순 정렬</p>
+          <p id="location-desc" class="text-[11px] text-[#636366] truncate">지도를 우클릭하면 그 위치 기준으로 정렬</p>
         </div>
       </div>
       <button id="btn-get-location" class="apple-pressable shrink-0 px-3 py-1.5 bg-[#007AFF] hover:bg-[#0062cc] text-white text-[11px] font-bold rounded-full shadow-xs transition">
@@ -106,6 +106,16 @@
         </button>
       </div>
 
+      <!-- 행정동 셀렉트 (구 선택 시 활성화) -->
+      <div class="relative">
+        <select class="dong-select apple-pressable w-full pl-3.5 pr-8 py-2 bg-white/45 hover:bg-white/70 border border-white/60 rounded-xl text-xs font-semibold text-[#1c1c1e] focus:outline-hidden focus:ring-2 focus:ring-[#007AFF]/40 appearance-none shadow-2xs cursor-pointer backdrop-blur-md disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          <option value="all">구·군을 먼저 선택하세요</option>
+        </select>
+        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-[#8e8e93]">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+      </div>
+
       <!-- 브랜드 선택 칩 (Apple Translucent Segmented Style) -->
       <div>
         <div class="flex items-center justify-between mb-1.5 px-0.5">
@@ -148,16 +158,19 @@
         </div>
       </div>
 
-      <!-- 내 위치 반경 필터 -->
-      <div id="radius-filter-box" class="hidden pt-1">
-        <div class="flex items-center justify-between mb-1 px-0.5">
+      <!-- 기준점 반경 필터 (슬라이더) -->
+      <div class="radius-box hidden pt-1">
+        <div class="flex items-center justify-between mb-1.5 px-0.5">
           <span class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider">탐색 반경</span>
+          <label class="flex items-center gap-1.5 text-[11px] font-semibold text-[#636366] cursor-pointer">
+            <input type="checkbox" class="radius-toggle accent-[#007AFF] w-3.5 h-3.5">
+            반경 제한
+            <span class="radius-label ml-0.5 px-2 py-0.5 rounded-full bg-[#007AFF]/12 text-[#007AFF] font-bold">1km</span>
+          </label>
         </div>
-        <div class="grid grid-cols-4 gap-1.5 p-1 bg-black/[0.04] rounded-xl">
-          <button class="radius-chip apple-pressable py-1 px-2 bg-[#007AFF] text-white text-xs font-bold rounded-lg transition shadow-2xs" data-radius="all">전체</button>
-          <button class="radius-chip apple-pressable py-1 px-2 bg-white/50 text-[#636366] text-xs font-semibold rounded-lg hover:bg-white/80 transition" data-radius="0.5">500m</button>
-          <button class="radius-chip apple-pressable py-1 px-2 bg-white/50 text-[#636366] text-xs font-semibold rounded-lg hover:bg-white/80 transition" data-radius="1">1km</button>
-          <button class="radius-chip apple-pressable py-1 px-2 bg-white/50 text-[#636366] text-xs font-semibold rounded-lg hover:bg-white/80 transition" data-radius="3">3km</button>
+        <input type="range" class="radius-range w-full accent-[#007AFF] cursor-pointer disabled:opacity-40" min="0" max="11" step="1" value="5" disabled>
+        <div class="flex justify-between text-[10px] text-[#8e8e93] px-0.5 -mt-0.5">
+          <span>100m</span><span>1km</span><span>3km</span><span>10km</span>
         </div>
       </div>
 
@@ -176,9 +189,19 @@
     </div>
 
     <!-- 결과 카운터 바 -->
-    <div class="px-5 py-2 bg-black/[0.02] border-y border-black/[0.03] flex items-center justify-between text-xs">
-      <span id="store-count" class="font-bold text-[#007AFF]">총 2,780개 점포</span>
-      <span id="sort-indicator" class="text-[#8e8e93] text-[11px] font-medium">카드 터치 시 위치 이동</span>
+    <div class="px-4 py-2 bg-black/[0.02] border-y border-black/[0.03] flex items-center justify-between gap-2 text-xs">
+      <span id="store-count" class="font-bold text-[#007AFF] truncate">총 2,780개 점포</span>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <select class="sort-select apple-pressable pl-2 pr-1 py-1 bg-white/50 border border-white/60 rounded-lg text-[11px] font-semibold text-[#1c1c1e] focus:outline-hidden focus:ring-2 focus:ring-[#007AFF]/40 cursor-pointer">
+          <option value="distance">📍 가까운 순</option>
+          <option value="name">가나다 순</option>
+          <option value="brand">브랜드 순</option>
+          <option value="region">지역 순</option>
+        </select>
+        <button class="group-toggle apple-pressable px-2 py-1 bg-white/50 border border-white/60 rounded-lg text-[11px] font-semibold text-[#636366] transition" title="지역별로 묶어서 보기">
+          지역별 묶기
+        </button>
+      </div>
     </div>
 
     <!-- 점포 카드 리스트 -->
@@ -243,7 +266,20 @@
   <!-- ========================================== -->
   <!-- 4. 플로팅 액션 버튼 (Apple Maps Style) -->
   <!-- ========================================== -->
-  <div class="absolute right-4 bottom-24 md:bottom-6 z-[1000] flex flex-col gap-3">
+  <div id="fab-stack" class="absolute right-4 bottom-24 md:bottom-6 z-[1000] flex flex-col gap-3">
+    <!-- 지도 스타일 (일반/위성) -->
+    <div class="relative">
+      <div id="basemap-menu" class="hidden absolute right-14 bottom-0 apple-glass rounded-2xl shadow-lg p-1.5 flex flex-col gap-1 w-32">
+        <button class="basemap-opt apple-pressable px-3 py-1.5 rounded-xl text-xs font-semibold text-left transition" data-base="street">🗺️ 일반 지도</button>
+        <button class="basemap-opt apple-pressable px-3 py-1.5 rounded-xl text-xs font-semibold text-left transition" data-base="satellite">🛰️ 위성</button>
+        <button class="basemap-opt apple-pressable px-3 py-1.5 rounded-xl text-xs font-semibold text-left transition" data-base="hybrid">🛰️ 위성+라벨</button>
+        <button class="basemap-opt apple-pressable px-3 py-1.5 rounded-xl text-xs font-semibold text-left transition" data-base="topo">⛰️ 지형</button>
+      </div>
+      <button id="btn-basemap" class="apple-pressable w-12 h-12 apple-glass hover:bg-white/80 text-[#1c1c1e] hover:text-[#007AFF] rounded-full shadow-lg flex items-center justify-center transition" title="지도 스타일 (일반/위성)">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l9 4.5-9 4.5-9-4.5L12 3zm-9 9l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/></svg>
+      </button>
+    </div>
+
     <!-- 내 위치 찾기 버튼 -->
     <button id="btn-my-location" class="apple-pressable w-12 h-12 apple-glass hover:bg-white/80 text-[#1c1c1e] hover:text-[#007AFF] rounded-full shadow-lg flex items-center justify-center transition" title="내 위치 찾기">
       <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
@@ -273,6 +309,32 @@
       </div>
     </div>
 
+    <!-- 모바일 정렬/지역/반경 컨트롤 -->
+    <div class="px-4 pb-2 space-y-2 border-b border-black/[0.05]">
+      <div class="flex items-center gap-1.5">
+        <select data-placeholder="동 선택 (구 먼저)" class="dong-select flex-1 min-w-0 px-2 py-1.5 bg-white/50 border border-white/60 rounded-lg text-[11px] font-semibold text-[#1c1c1e] disabled:opacity-50" disabled>
+          <option value="all">동 선택 (구 먼저)</option>
+        </select>
+        <select class="sort-select shrink-0 px-2 py-1.5 bg-white/50 border border-white/60 rounded-lg text-[11px] font-semibold text-[#1c1c1e]">
+          <option value="distance">📍 가까운 순</option>
+          <option value="name">가나다 순</option>
+          <option value="brand">브랜드 순</option>
+          <option value="region">지역 순</option>
+        </select>
+        <button class="group-toggle shrink-0 px-2 py-1.5 bg-white/50 border border-white/60 rounded-lg text-[11px] font-semibold text-[#636366]">지역별</button>
+      </div>
+      <div class="radius-box hidden">
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-1 text-[11px] font-semibold text-[#636366] shrink-0">
+            <input type="checkbox" class="radius-toggle accent-[#007AFF] w-3.5 h-3.5"> 반경
+          </label>
+          <input type="range" class="radius-range flex-1 accent-[#007AFF] disabled:opacity-40" min="0" max="11" step="1" value="5" disabled>
+          <span class="radius-label shrink-0 w-12 text-center px-1.5 py-0.5 rounded-full bg-[#007AFF]/12 text-[#007AFF] text-[11px] font-bold">1km</span>
+        </div>
+      </div>
+      <p class="origin-hint text-[10px] text-[#8e8e93]">지도를 길게 누르면 그 위치를 기준으로 가까운 순 정렬됩니다</p>
+    </div>
+
     <!-- 모바일 점포 카드 리스트 -->
     <div id="sheet-list" class="flex-1 overflow-y-auto p-3.5 space-y-2.5 pb-10">
       <!-- 동적 렌더링 -->
@@ -283,8 +345,8 @@
   <script src="data/stores.js"></script>
 
   <!-- 모듈 스크립트 -->
-  <script src="js/map.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/map.js?v=8"></script>
+  <script src="js/app.js?v=9"></script>
 
   <!-- 모바일 검색/구 동기화 인라인 스크립트 -->
   <script>

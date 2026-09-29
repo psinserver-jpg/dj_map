@@ -356,3 +356,24 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* 지도에서 직접 지정한 기준점 (주황색) */
+.user-location-marker.origin-manual {
+  background-color: #FF9500;
+  box-shadow: 0 0 0 5px rgba(255, 149, 0, 0.3), 0 3px 8px rgba(0,0,0,0.25);
+  animation: none;
+}
+
+/* 지역별 묶기 헤더가 카드 위에 겹칠 때 */
+#store-list .sticky, #sheet-list .sticky { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+
+/* 모바일: 줌 버튼은 상단 검색바에 가려지므로 숨김 (핀치 줌 사용) */
+/* 바텀시트가 열리면 우측 플로팅 버튼이 시트 위로 따라 올라감 */
+@media (max-width: 767px) {
+  .leaflet-control-zoom { display: none; }
+  #fab-stack {
+    transition: bottom 0.42s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease;
+  }
+  body[data-sheet="half"] #fab-stack { bottom: calc(46vh + 12px); }
+  body[data-sheet="expanded"] #fab-stack { opacity: 0; pointer-events: none; }
+}
